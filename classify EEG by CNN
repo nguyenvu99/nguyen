@@ -1,0 +1,115 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import tensorflow as tf
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import StratifiedShuffleSplit
+from tensorflow.keras.layers import Flatten, Dense,Activation, Conv1D, MaxPool1D, Dropout
+from tensorflow.keras.optimizers import SGD
+from keras.utils import np_utils
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+train=pd.read_csv('Train.csv')
+test=pd.read_csv('Test.csv')
+def encode(train, test):
+    label_encoder = LabelEncoder().fit(train.label) 
+    labels = label_encoder.transform(train.label)   
+    classes = list(label_encoder.classes_) 
+
+    train = train.drop(['id','label'], axis=1) 
+    test = test.drop('id', axis=1)
+
+    return train, labels, test, classes
+train, labels, test, classes = encode(train, test)
+
+# standardize train features
+scaler = StandardScaler().fit(train.values)
+scaled_train = scaler.transform(train.values)
+
+# split train data into train and validation
+sss = StratifiedShuffleSplit(test_size=0.3, random_state=23)
+for train_index, valid_index in sss.split(scaled_train, labels):
+    X_train, X_valid = scaled_train[train_index], scaled_train[valid_index]
+    y_train, y_valid = labels[train_index], labels[valid_index]
+
+X_train = np.reshape(X_train, (X_train.shape[0],X_train.shape[1],1))
+X_valid = np.reshape(X_valid, (X_valid.shape[0],X_valid.shape[1],1))
+nb_features = 2804 # number of features per features type (shape, texture, margin)
+nb_class = len(classes)
+y_train = np_utils.to_categorical(y_train, nb_class)
+y_valid = np_utils.to_categorical(y_valid, nb_class)
+print('size of X_train:', X_train.shape)
+print('size of X_valid:', X_valid.shape)
+print('size of y_train:', y_train.shape)
+print('size of y_valid:', y_valid.shape)
+
+cnn_model  = tf.keras.models.Sequential()
+cnn_model.add(Conv1D(filters=3, kernel_size=(201), input_shape=(nb_features, 1)))
+cnn_model.add(Activation('relu'))
+cnn_model.add(MaxPool1D(pool_size=(2,), strides=2))
+cnn_model.add(Conv1D(filters=3, kernel_size=(54)))
+cnn_model.add(Activation('relu'))
+cnn_model.add(MaxPool1D(pool_size=(2,), strides=2))
+cnn_model.add(Conv1D(filters=10, kernel_size=(25)))
+cnn_model.add(Activation('relu'))
+cnn_model.add(Conv1D(filters=15, kernel_size=(11)))
+cnn_model.add(Activation('relu'))
+cnn_model.add(MaxPool1D(pool_size=(2,), strides=2))
+cnn_model.add(Flatten())
+cnn_model.add(Dropout(0.6))
+cnn_model.add(Dense(50, activation='relu'))
+cnn_model.add(Dense(20, activation='relu'))
+cnn_model.add(Dense(nb_class))
+cnn_model.add(Activation('softmax'))
+
+sgd = SGD(lr=0.0001, nesterov=True, decay=1e-6, momentum=0.9)
+cnn_model.compile(loss='categorical_crossentropy',optimizer=sgd,metrics=['accuracy'])
+cnn_model.summary()
+cnn_model_history = cnn_model.fit(X_train, y_train, epochs=150, validation_data=(X_valid, y_valid), batch_size=11)
+# save model
+cnn_model.save('bestmodel_4_right.h5')
+
+accuracy = cnn_model_history.history['accuracy']
+val_accuracy = cnn_model_history.history['val_accuracy']
+loss = cnn_model_history.history['loss']
+val_loss = cnn_model_history.history['val_loss']
+epochs = range(1, len(loss) + 1)
+
+# model_acc = cnn_model.evaluate(X_valid, y_valid, verbose=0)[1]
+# print("Test Accuracy: {:.3f}%".format(model_acc * 100))
+y_pred = np.array(list(map(lambda x: np.argmax(x), cnn_model.predict(X_valid))))
+y_test = np.argmax(y_valid,axis=1)
+
+cm = confusion_matrix(y_test, y_pred)
+clr = classification_report(y_test, y_pred)
+
+print("Classification Report:\n----------------------\n", clr)
+
+#plot confusion matrix
+
+fig1 = plt.figure(u'hinh 1')
+plt.plot(epochs,accuracy)
+plt.plot(epochs,val_accuracy)
+plt.legend(["accuracy","val_accuracy"])
+plt.title('Accuracy Vs Val_Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+fig1.show()
+
+fig2 = plt.figure(u'hinh 2')
+plt.plot(epochs,loss)
+plt.plot(epochs,val_loss)
+plt.legend(["loss","val_loss"])
+plt.title('Loss Vs Val_loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+fig2.show()
+
+plt.figure(figsize=(5, 5))
+sns.heatmap(cm, annot=True, vmin=0, fmt='g', cbar=False, cmap='Blues')
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.title("Confusion Matrix")
+plt.show()
