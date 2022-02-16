@@ -1,0 +1,117 @@
+from Credentials import *
+from cortex import Cortex
+import time
+import os
+import numpy as np  # for math ops
+import pandas as pd  # handle table like data, excel
+from keras.models import load_model
+from pandas import DataFrame
+import serial #Serial imported for Serial communication
+#ArduinoSerial = serial.Serial("/dev/rfcomm1", baudrate=9600)
+ArduinoSerial = serial.Serial("COM3", baudrate=9600)
+from scipy.signal import savgol_filter  #bo loc golay
+np.set_printoptions(precision=2)
+class Record():
+    def __init__(self):
+        self.c = Cortex(user, debug_mode=True)
+        self.c.do_prepare_steps()
+
+    def create_record_then_export(self,
+                                  record_name,
+                                  record_description,
+                                  record_length_s,
+                                  record_export_folder,
+                                  record_export_data_types,
+                                  record_export_format,
+                                  record_export_version):
+        self.c.create_record(record_name,
+                             record_description)
+
+        self.wait(record_length_s)
+
+        self.c.stop_record()
+
+        # self.c.disconnect_headset()
+        # time.sleep(20)
+
+        self.c.getLicenseInfo()
+        self.c.export_record(record_export_folder,
+                             record_export_data_types,
+                             record_export_format,
+                             record_export_version,
+                             [self.c.record_id])
+
+    def wait(self, record_length_s):
+        print('start recording -------------------------')
+        length = 0
+        while length < record_length_s:
+            print('recording at {0} s'.format(length))
+            time.sleep(1)
+            length += 1
+        print('end recording -------------------------')
+ r = Record()
+
+# record parameters
+record_name = 'BLINK'
+record_description = 'E1_S1'
+record_length_s = 6
+
+# export parameters
+record_export_folder = "E:\\data"
+record_export_data_types = ['EEG']
+record_export_format = 'CSV'
+record_export_version = 'V2'
+
+
+# start record --> stop record --> disconnect headset --> export record
+r.create_record_then_export(record_name,
+                            record_description,
+                            record_length_s,
+                            record_export_folder,
+                            record_export_data_types,
+                            record_export_format,
+                            record_export_version)
+# -----------------------------------------------------------
+
+dirName = r"E:\data"
+fnList = [f for f in os.listdir(dirName)\
+    if f.endswith('.csv') and os.path.isfile(os.path.join(dirName, f))]
+if len(fnList) > 0:
+    fn = fnList[-1]
+    path = os.path.join(dirName, fn)
+    print(path)
+    # Process this file
+else:
+    print('No such file')
+eeg = ["EEG.AF3", "EEG.F7", "EEG.AF4", "EEG.F8"]
+data = []
+data_file_eeg_8 = pd.read_csv(path, header=1, usecols=eeg)
+for i in eeg:
+    data = data + data_file_eeg_8[i].head(701).to_list()
+#print(data)
+# print("So mau cua list la: ", len(data));
+df = DataFrame(data)
+#loadmodel
+model = load_model('bestmodel.h5')
+a = np.array(df)
+a= savgol_filter(a, 5, 2,mode='nearest')
+a_t = np.transpose(a) #Create transpose of a
+X_unkown =  np.reshape(a_t, (a_t.shape[0], a_t.shape[1], 1))
+# print('size of X_unkown:',X_unkown.shape)
+output = model.predict(X_unkown)
+output = np.argmax(np.round(output),axis=1)
+if output == 2:
+    prediction = 'Left'
+   
+elif output == 3:
+    prediction = 'Right'
+   
+elif output == 1:
+    prediction = 'Both'
+    
+else :
+    prediction = 'Bothx2'
+  
+print(prediction)
+
+
